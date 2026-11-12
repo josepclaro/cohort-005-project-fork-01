@@ -1,6 +1,6 @@
 import { data } from "react-router";
+import { requireUserId } from "~/lib/access.server";
 import type { Route } from "./+types/api.notification-feed-token";
-import { getCurrentUserId } from "~/lib/session";
 import { defaultNotifications } from "~/lib/notifications.server";
 
 /**
@@ -9,10 +9,7 @@ import { defaultNotifications } from "~/lib/notifications.server";
  * left open past the token's lifetime keeps its live feed.
  */
 export async function loader({ request }: Route.LoaderArgs) {
-  const currentUserId = await getCurrentUserId(request);
-  if (!currentUserId) {
-    throw data("Unauthorized", { status: 401 });
-  }
+  const currentUserId = await requireUserId(request);
 
   const credentials = await (
     await defaultNotifications()

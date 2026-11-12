@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useFetcher, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
+import { requireUserId } from "~/lib/access.server";
 import type { Route } from "./+types/courses.$slug";
 import { getCurrentUserId } from "~/lib/session";
 import { db } from "~/db";
@@ -451,11 +452,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 // Enrollment is handled via the purchase confirmation page — this action only
 // records star ratings.
 export async function action({ params, request }: Route.ActionArgs) {
-  const currentUserId = await getCurrentUserId(request);
-
-  if (!currentUserId) {
-    throw data("You must be logged in to rate a course.", { status: 401 });
-  }
+  const currentUserId = await requireUserId(request);
 
   const course = getCourseBySlug(params.slug);
   if (!course) {

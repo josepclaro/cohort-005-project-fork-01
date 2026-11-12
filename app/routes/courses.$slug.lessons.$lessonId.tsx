@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Link, useFetcher, useNavigate } from "react-router";
 import { toast } from "sonner";
 import type { Route } from "./+types/courses.$slug.lessons.$lessonId";
-import { getCurrentUserId } from "~/lib/session";
-import { getAccess, requireContentAccess } from "~/lib/access.server";
+import { getAccess, requireContentAccess, requireUserId } from "~/lib/access.server";
 import { renderComment } from "~/lib/comment-markdown.server";
 import { markdown, type Markdown } from "~/lib/text";
 import {
@@ -669,7 +668,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     throw data("Lesson not found in this course", { status: 404 });
   }
 
-  const access = await getAccess(request, course.id);
+  const access = await getAccess(db, request, course.id);
   const currentUserId = access.userId;
   const enrolled = access.enrolled;
   let lessonStatus: string | null = null;
@@ -838,10 +837,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     throw data("Course not found", { status: 404 });
   }
 
-  const currentUserId = await getCurrentUserId(request);
-  if (!currentUserId) {
-    throw data("You must be logged in", { status: 401 });
-  }
+  const currentUserId = await requireUserId(request);
 
   const formData = await request.formData();
   const intent = formData.get("intent");
@@ -853,7 +849,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     intent === "edit-comment" ||
     intent === "delete-comment"
   ) {
-    const access = await requireContentAccess(request, course.id);
+    const access = await requireContentAccess(db, request, course.id);
 
     try {
       if (intent === "create-comment") {
@@ -924,12 +920,12 @@ export async function action({ params, request }: Route.ActionArgs) {
     }
   }
 
-  // Bookmark and Note intents re-check access here, like the comment intents
-  // above — loader guards don't protect actions.
-  if (intent === "toggle-bookmark" || intent === "save-note") {
-    await requireContentAccess(request, course.id);
-    requireLessonInCourse(lessonId, course.id);
+  // Every other intent re-checks access here, like the comment intents above —
+  // loader guards don't protect actions.
+  await requireContentAccess(db, request, course.id);
+  requireLessonInCourse(lessonId, course.id);
 
+  if (intent === "toggle-bookmark" || intent === "save-note") {
     if (intent === "toggle-bookmark") {
       const bookmarked = toggleBookmark(db, currentUserId, lessonId, new Date());
       return { ok: true, bookmarked };
@@ -959,6 +955,10 @@ export async function action({ params, request }: Route.ActionArgs) {
     const quizId = Number(formData.get("quizId"));
     if (isNaN(quizId)) {
       throw data("Invalid quiz ID", { status: 400 });
+    }
+    // Scoring reveals the correct options, so only this lesson's quiz counts.
+    if (getQuizByLessonId(lessonId)?.id !== quizId) {
+      throw data("Quiz not found for this lesson", { status: 404 });
     }
 
     // Collect answers: form fields named "question-{questionId}" with value = optionId
