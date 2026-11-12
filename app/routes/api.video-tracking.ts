@@ -1,41 +1,43 @@
 import { data } from "react-router";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { requireContentAccess } from "~/lib/access.server";
 import type { Route } from "./+types/api.video-tracking";
-import { getCurrentUserId } from "~/lib/session";
-import { parseJsonBody } from "~/lib/validation";
+import { parseJson } from "~/lib/validation";
 import { db } from "~/db";
-import { videoWatchEvents } from "~/db/schema";
+import { lessons, modules, videoWatchEvents } from "~/db/schema";
 
 const videoTrackingSchema = z.object({
-  lessonId: z.number(),
-  eventType: z.string(),
-  positionSeconds: z.number(),
+  lessonId: z.number().int(),
+  eventType: z.enum(["play", "pause", "progress", "ended"]),
+  positionSeconds: z.number().finite().nonnegative(),
 });
 
+function getCourseIdForLesson(lessonId: number) {
+  return db
+    .select({ courseId: modules.courseId })
+    .from(lessons)
+    .innerJoin(modules, eq(modules.id, lessons.moduleId))
+    .where(eq(lessons.id, lessonId))
+    .get()?.courseId;
+}
+
 export async function action({ request }: Route.ActionArgs) {
-  const currentUserId = await getCurrentUserId(request);
-  if (!currentUserId) {
-    throw data("Unauthorized", { status: 401 });
+  const { lessonId, eventType, positionSeconds } = await parseJson(
+    request,
+    videoTrackingSchema
+  );
+
+  const courseId = getCourseIdForLesson(lessonId);
+  if (courseId === undefined) {
+    throw data("Lesson not found", { status: 404 });
   }
 
-  const parsed = await parseJsonBody(request, videoTrackingSchema);
+  const { userId } = await requireContentAccess(db, request, courseId);
 
-  if (!parsed.success) {
-    throw data("Invalid parameters", { status: 400 });
-  }
-
-  const { lessonId, eventType, positionSeconds } = parsed.data;
-
-  db
-    .insert(videoWatchEvents)
-    .values({
-      userId: currentUserId,
-      lessonId,
-      eventType,
-      positionSeconds,
-    })
-    .returning()
-    .get();
+  db.insert(videoWatchEvents)
+    .values({ userId, lessonId, eventType, positionSeconds })
+    .run();
 
   return { success: true };
 }

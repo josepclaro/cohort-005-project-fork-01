@@ -65,7 +65,7 @@ export function meta() {
 }
 
 export async function loader({ request, url }: Route.LoaderArgs) {
-  const viewer = await requireInstructorOrAdmin(request);
+  const viewer = await requireInstructorOrAdmin(db, request);
   return getInstructorAnalytics(db, viewer, url.searchParams, new Date());
 }
 

@@ -8,6 +8,16 @@ type ParseFailure = {
 };
 type ParseResult<T> = ParseSuccess<T> | ParseFailure;
 
+function firstErrorPerField(error: z.ZodError): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const [key, messages] of Object.entries(error.flatten().fieldErrors)) {
+    if (Array.isArray(messages) && messages.length > 0) {
+      errors[key] = messages[0];
+    }
+  }
+  return errors;
+}
+
 /**
  * Converts FormData to a plain object, validates with a Zod schema,
  * and returns either the parsed data or a field-error map (first error per field).
@@ -16,22 +26,13 @@ export function parseFormData<T extends z.ZodType>(
   formData: FormData,
   schema: T
 ): ParseResult<z.infer<T>> {
-  const raw = Object.fromEntries(formData);
-  const result = schema.safeParse(raw);
+  const result = schema.safeParse(Object.fromEntries(formData));
 
   if (result.success) {
     return { success: true, data: result.data };
   }
 
-  const fieldErrors = result.error.flatten().fieldErrors;
-  const errors: Record<string, string> = {};
-  for (const [key, messages] of Object.entries(fieldErrors)) {
-    if (messages && messages.length > 0) {
-      errors[key] = messages[0];
-    }
-  }
-
-  return { success: false, errors };
+  return { success: false, errors: firstErrorPerField(result.error) };
 }
 
 /**
@@ -53,26 +54,19 @@ export function parseParams<T extends z.ZodType>(
 
 /**
  * Parses a JSON request body with a Zod schema.
- * Returns either the parsed data or a field-error map (first error per field).
+ * Throws a 400 response when the body is not JSON or does not match — a JSON
+ * body comes from our own scripts, not a form the user can correct.
  */
-export async function parseJsonBody<T extends z.ZodType>(
+export async function parseJson<T extends z.ZodType>(
   request: Request,
   schema: T
-): Promise<ParseResult<z.infer<T>>> {
-  const raw = await request.json();
+): Promise<z.infer<T>> {
+  const raw: unknown = await request.json().catch(() => undefined);
   const result = schema.safeParse(raw);
 
   if (result.success) {
-    return { success: true, data: result.data };
+    return result.data;
   }
 
-  const fieldErrors = result.error.flatten().fieldErrors;
-  const errors: Record<string, string> = {};
-  for (const [key, messages] of Object.entries(fieldErrors)) {
-    if (messages && messages.length > 0) {
-      errors[key] = messages[0];
-    }
-  }
-
-  return { success: false, errors };
+  throw data("Invalid request body", { status: 400 });
 }

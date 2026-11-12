@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { requireUserId } from "~/lib/access.server";
 import type { Route } from "./+types/dashboard";
 import { db } from "~/db";
 import {
@@ -10,7 +11,6 @@ import {
   LessonProgressStatus,
 } from "~/db/schema";
 import { eq, and, or, sql } from "drizzle-orm";
-import { getCurrentUserId } from "~/lib/session";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -189,13 +189,7 @@ export function meta() {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const currentUserId = await getCurrentUserId(request);
-
-  if (!currentUserId) {
-    throw data("Select a user from the DevUI panel to view your dashboard.", {
-      status: 401,
-    });
-  }
+  const currentUserId = await requireUserId(request);
 
   const enrolledCourses = getUserEnrolledCourses(currentUserId);
 
